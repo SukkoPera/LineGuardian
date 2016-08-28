@@ -33,7 +33,7 @@ const byte mac[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
 const unsigned int ETHERNET_BUFSIZE = 800;
 byte Ethernet::buffer[ETHERNET_BUFSIZE];
 
-#define PINGED_HOST "www.iol.it"
+#define PINGED_HOST "www.google.com"
 
 // Time (seconds) to allow the router to power on and connect
 const unsigned long POWER_ON_TIME = 180;
