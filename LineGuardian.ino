@@ -20,12 +20,11 @@
  * LineGuardian - Let your Arduino check that your Net connection is up and
  * running and restart your modem modem/router otherwise
  *
+ * Only supports ENC28J60-based Ethernet interfaces, at the moment.
+ *
  * Please refer to the GitHub page and wiki for any information:
  * https://github.com/SukkoPera/LineGuardian
  */
-
-#include <EtherCard.h>
-#include <IPAddress.h>
 
 
 /*******************************************************************************
@@ -36,7 +35,6 @@
 const byte mac[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
 
 const unsigned int ETHERNET_BUFSIZE = 800;
-byte Ethernet::buffer[ETHERNET_BUFSIZE];
 
 #define PINGED_HOST "www.google.com"
 
@@ -72,6 +70,9 @@ const byte LED_PIN_G = 4;
  ******************************************************************************/
 
 
+#include <EtherCard.h>
+#include <IPAddress.h>
+
 // Time (micros()) of last ECHO request sent
 unsigned long pingStartTime = 0;		// 0 -> No ping in progress
 
@@ -80,6 +81,9 @@ unsigned long stateEnteredTime = 0;
 
 // Number of consecutive ping failures
 byte pingFailures = 0;
+
+// Ethernet packet buffer
+byte Ethernet::buffer[ETHERNET_BUFSIZE];
 
 // Program version
 #define PROGRAM_VERSION "20160829"
