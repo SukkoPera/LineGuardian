@@ -1,3 +1,29 @@
+/*******************************************************************************
+ * This file is part of LineGuardian.                                          *
+ *                                                                             *
+ * Copyright (C) 2015-2016 by SukkoPera <software@sukkology.net>               *
+ *                                                                             *
+ * LineGuardian is free software: you can redistribute it and/or modify        *
+ * it under the terms of the GNU General Public License as published by        *
+ * the Free Software Foundation, either version 3 of the License, or           *
+ * (at your option) any later version.                                         *
+ *                                                                             *
+ * LineGuardian is distributed in the hope that it will be useful,             *
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of              *
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the               *
+ * GNU General Public License for more details.                                *
+ *                                                                             *
+ * You should have received a copy of the GNU General Public License           *
+ * along with LineGuardian. If not, see <http://www.gnu.org/licenses/>.        *
+ *******************************************************************************
+ *
+ * LineGuardian - Let your Arduino check that your Net connection is up and
+ * running and restart your modem modem/router otherwise
+ *
+ * Please refer to the GitHub page and wiki for any information:
+ * https://github.com/SukkoPera/LineGuardian
+ */
+
 #include <EtherCard.h>
 #include <IPAddress.h>
 
