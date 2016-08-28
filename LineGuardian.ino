@@ -71,6 +71,9 @@ unsigned long stateEnteredTime = 0;
 // Number of consecutive ping failures
 byte pingFailures = 0;
 
+// Program version
+#define PROGRAM_VERSION "20160829"
+
 
 enum State {
 	ST_INIT,			// Power on router, wait POWER_ON_TIME
@@ -179,7 +182,8 @@ void led_green () {
 
 void setup () {
 	Serial.begin (9600);
-	Serial.println (F("LineGuardian"));
+	Serial.print (F("LineGuardian "));
+	Serial.println (F(PROGRAM_VERSION));
 
 	// Setup leds
 	pinMode (LED_PIN_R, OUTPUT);
