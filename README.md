@@ -1,2 +1,2 @@
 # LineGuardian
-Checks that your Net connection is up and running and restarts modem/router otherwise
+Let your Arduino check that your Net connection is up and running and restart your modem modem/router otherwise
