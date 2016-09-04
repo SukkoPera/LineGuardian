@@ -137,7 +137,7 @@ time_t timeLineWentDown = 0;
 time_t timeRebooted = 0;
 
 // Program version
-#define PROGRAM_VERSION "20160831"
+#define PROGRAM_VERSION "20160904"
 
 
 enum State {
