@@ -53,25 +53,61 @@ const unsigned long PING_TIMEOUT = 15;
 // Number of failures after which router is restarted
 const byte MAX_FAILURES = 3;
 
+// Pin connected to red led
+const byte LED_PIN_R = 2;
+
+// Pin connected to green led
+const byte LED_PIN_G = 3;
+
 // Pin driving relay
-const byte RELAY_PIN = 2;
+const byte RELAY_PIN = 4;
 
 // Define this if relay is active-low
 #define RELAY_ACTIVE_LOW
 
-// Pin connected to red led
-const byte LED_PIN_R = 3;
+/* PushingBox device ID to notify when router is rebooted.
+ * Do not define if unwanted.
+ */
+//~ #define PUSHINGBOX_DEVID_REBOOT ""
 
-// Pin connected to green led
-const byte LED_PIN_G = 4;
+/* PushingBox device ID to notify when connection is lost briefly.
+ * Do not define if unwanted.
+ */
+//~ #define PUSHINGBOX_DEVID_DROPOUT ""
+
+// NTP Server (Only used if PushingBox support is required)
+const char timeServer[] PROGMEM = "pool.ntp.org";
+
+// Local UTC offset
+const int UTC_OFFSET = 1;     // Central European Time
+//const int UTC_OFFSET = -5;  // Eastern Standard Time (USA)
+//const int UTC_OFFSET = -4;  // Eastern Daylight Time (USA)
+//const int UTC_OFFSET = -8;  // Pacific Standard Time (USA)
+//const int UTC_OFFSET = -7;  // Pacific Daylight Time (USA)
+
+// NTP port (UDP)
+const unsigned int NTP_PORT = 123;
+
+// Time to wait for a reply from the NTP server (ms)
+const unsigned int NTP_TIMEOUT = 3000;
 
 /*******************************************************************************
  * END OF SETTINGS
  ******************************************************************************/
 
 
+#if defined (PUSHINGBOX_DEVID_REBOOT) || defined (PUSHINGBOX_DEVID_DROPOUT)
+	#define ENABLE_PUSHINGBOX
+#endif
+
 #include <EtherCard.h>
 #include <IPAddress.h>
+#include <TimeLib.h>
+
+#ifdef ENABLE_PUSHINGBOX
+#include <PString.h>
+#endif
+
 
 // Time (micros()) of last ECHO request sent
 unsigned long pingStartTime = 0;		// 0 -> No ping in progress
@@ -85,16 +121,29 @@ byte pingFailures = 0;
 // Ethernet packet buffer
 byte Ethernet::buffer[ETHERNET_BUFSIZE];
 
+// True if network is connected
+boolean lineUp = false;
+
+// Time at which line last went up
+time_t timeLineWentUp = 0;
+
+// Time at which line last went down
+time_t timeLineWentDown = 0;
+
+// Time at which we last rebooted the router
+time_t timeRebooted = 0;
+
 // Program version
-#define PROGRAM_VERSION "20160829"
+#define PROGRAM_VERSION "20160831"
 
 
 enum State {
 	ST_INIT,			// Power on router, wait POWER_ON_TIME
+	ST_WAIT,			// Wait until time for next ping
 	ST_SEND_REQUEST,	// Send echo request
 	ST_WAIT_REPLY,		// Wait for echo reply
-	ST_OK,				// Connection is up, send ping every PING_INTERVAL
-	ST_FAIL,			// Connection failed, send ping every PING_INTERVAL, if MAX_FAILURES is reached, restart router
+	ST_OK,				// Connection is up,
+	ST_FAIL,			// Connection failed
 	ST_POWER_CYCLE		// Power off router, wait POWER_OFF_TIME
 };
 
@@ -193,7 +242,7 @@ void led_green () {
 	digitalWrite (LED_PIN_G, HIGH);
 }
 
-
+time_t prevDisplay = 0; // when the digital clock was displayed
 void setup () {
 	Serial.begin (9600);
 	Serial.print (F("LineGuardian "));
@@ -202,6 +251,7 @@ void setup () {
 	// Setup leds
 	pinMode (LED_PIN_R, OUTPUT);
 	pinMode (LED_PIN_G, OUTPUT);
+	led_orange ();
 
 	if (!ether.begin (sizeof (Ethernet::buffer), mac)) {
 		Serial.println (F("Failed to access Ethernet controller"));
@@ -236,6 +286,13 @@ void setup () {
 	Serial.print (F("- Default Gateway: "));
 	Serial.println (IPAddress (EtherCard::gwip));
 
+#ifdef ENABLE_PUSHINGBOX
+	// Sync with NTP
+	Serial.println (F("Syncing time with NTP..."));
+	//setSyncProvider(getNtpTime);            // Use this for GMT time
+	setSyncProvider(getDstCorrectedTime);     // Use this for local, DST-corrected time
+#endif
+
 	// Call this when others ping us
 	ether.registerPingCallback (gotPinged);
 
@@ -253,9 +310,40 @@ void setup () {
 	enterState (ST_INIT);
 }
 
+void digitalClockDisplay () {
+	// digital clock display of the time
+	Serial.print (hour ());
+	printDigits (minute ());
+	printDigits (second ());
+	Serial.print (" ");
+	Serial.print (day ());
+	Serial.print (" ");
+	Serial.print (month ());
+	Serial.print (" ");
+	Serial.print (year ());
+	Serial.println ();
+}
+
+void printDigits (int digits) {
+	// utility for digital clock display: prints preceding colon and leading 0
+	Serial.print (":");
+	if(digits < 10)
+		Serial.print ('0');
+	Serial.print (digits);
+}
+
 void loop () {
+	if (timeStatus () != timeNotSet) {
+		if (now() != prevDisplay) { //update the display only if time has changed
+			prevDisplay = now();
+			digitalClockDisplay();
+		}
+	}
+
+
+	// Ethernet loop
 	word len = ether.packetReceive (); // go receive new packets
-	word pos = ether.packetLoop (len); // respond to incoming pings
+	/*word pos =*/ ether.packetLoop (len); // respond to incoming pings
 
 	switch (state) {
 		case ST_INIT:
@@ -274,7 +362,6 @@ void loop () {
 				/* Could not send ping request, possibly because of a DNS
 				 * failure, so connection may be down already
 				 */
-				pingFailures++;
 				enterState (ST_FAIL);
 			}
 			break;
@@ -285,26 +372,46 @@ void loop () {
 				enterState (ST_OK);
 			} else if (inStateSince (PING_TIMEOUT)) {
 				// Ping timeout
-				pingFailures++;
 				enterState (ST_FAIL);
 			}
 			break;
 		case ST_OK:
 			led_green ();
-			if (inStateSince (PING_INTERVAL)) {
-				enterState (ST_SEND_REQUEST);
+			lineUp = true;
+			timeLineWentUp = now ();
+
+#ifdef ENABLE_PUSHINGBOX
+			if (timeLineWentDown != 0) {
+				if (timeRebooted > 0) {
+					sendRebootNotification (timeLineWentDown, timeRebooted, timeLineWentUp);
+				} else {
+					sendDropoutNotification (timeLineWentDown, timeLineWentUp);
+				}
+				timeLineWentDown = 0;
+				timeRebooted = 0;
 			}
+#endif
+
+			enterState (ST_WAIT);
 			break;
 		case ST_FAIL:
 			led_red ();
-			if (pingFailures >= MAX_FAILURES) {
+			lineUp = false;
+			timeLineWentDown = now ();
+			if (++pingFailures >= MAX_FAILURES) {
 				enterState (ST_POWER_CYCLE);
-			} else if (inStateSince (PING_INTERVAL)) {
+			} else {
+				enterState (ST_WAIT);
+			}
+			break;
+		case ST_WAIT:
+			if (inStateSince (PING_INTERVAL)) {
 				enterState (ST_SEND_REQUEST);
 			}
 			break;
 		case ST_POWER_CYCLE:
 			led_orange ();
+			timeRebooted = now ();
 			disableRelay ();
 			if (inStateSince (POWER_OFF_TIME)) {
 				enterState (ST_INIT);
@@ -312,3 +419,210 @@ void loop () {
 			break;
 	}
 }
+
+
+/*******************************************************************************
+ * PUSHINGBOX STUFF
+ ******************************************************************************/
+
+#ifdef ENABLE_PUSHINGBOX
+
+// SyncProvider that returns UTC time
+time_t getNtpTime () {
+	// Send request
+	Serial.println ("Transmit NTP Request");
+	if (!ether.dnsLookup (timeServer)) {
+		Serial.println ("DNS failed");
+		return 0; // return 0 if unable to get the time
+	} else {
+		//ether.printIp("SRV: ", ether.hisip);
+		ether.ntpRequest (ether.hisip, NTP_PORT);
+
+		// Wait for reply
+		unsigned long beginWait = millis ();
+		while (millis() - beginWait < NTP_TIMEOUT) {
+			word len = ether.packetReceive ();
+			ether.packetLoop (len);
+
+			unsigned long secsSince1900 = 0L;
+			if (len > 0 && ether.ntpProcessAnswer (&secsSince1900, NTP_PORT)) {
+				Serial.println ("Receive NTP Response");
+				return secsSince1900 - 2208988800UL;
+			}
+		}
+
+		Serial.println ("No NTP Response :-(");
+		return 0;
+	}
+}
+
+/* Alternative SyncProvider that automatically handles Daylight Saving Time
+ * (DST) periods, at least in Europe, see below.
+ */
+time_t getDstCorrectedTime (void) {
+	time_t t = getNtpTime ();
+
+	if (t > 0) {
+		TimeElements tm;
+		breakTime (t, tm);
+		t += (UTC_OFFSET + dstOffset (tm.Day, tm.Month, tm.Year + 1970, tm.Hour)) * SECS_PER_HOUR;
+	}
+
+	return t;
+}
+
+/* This function returns the DST offset for the current UTC time.
+ * This is valid for the EU, for other places see
+ * http://www.webexhibits.org/daylightsaving/i.html
+ *
+ * Results have been checked for 2012-2030 (but should work since
+ * 1996 to 2099) against the following references:
+ * - http://www.uniquevisitor.it/magazine/ora-legale-italia.php
+ * - http://www.calendario-365.it/ora-legale-orario-invernale.html
+ */
+byte dstOffset (byte d, byte m, unsigned int y, byte h) {
+	// Day in March that DST starts on, at 1 am
+	byte dstOn = (31 - (5 * y / 4 + 4) % 7);
+
+	// Day in October that DST ends  on, at 2 am
+	byte dstOff = (31 - (5 * y / 4 + 1) % 7);
+
+	if ((m > 3 && m < 10) ||
+		(m == 3 && (d > dstOn || (d == dstOn && h >= 1))) ||
+		(m == 10 && (d < dstOff || (d == dstOff && h <= 1))))
+		return 1;
+	else
+		return 0;
+}
+
+
+// PushingBox API access point
+const char PUSHINGBOX_API_HOST[] PROGMEM = "api.pushingbox.com";
+
+// called when the client request is complete
+// FIXME: Parse reply to see if request was successful
+static void pbApiCallback (byte status, word off, word len) {
+	Serial.println(">>>");
+	Ethernet::buffer[off + 500] = 0;
+	Serial.print ((const char*) Ethernet::buffer + off);
+	Serial.println ("...");
+}
+
+class PStringWithEncoder: public PString {
+private:
+	static const char *HEX_DIGITS;
+	static const byte BUFSIZE;
+
+public:
+	PStringWithEncoder (char *buf, size_t size): PString (buf, size) {
+	}
+
+	// Inspired from http://hardwarefun.com/tutorials/url-encoding-in-arduino
+	void printEncoded (const char* s) {
+		for (; *s; s++) {
+			if (('a' <= *s && *s <= 'z')
+					 || ('A' <= *s && *s <= 'Z')
+					 || ('0' <= *s && *s <= '9')) {
+
+				print (*s);
+			} else {
+				print ('%');
+				print (HEX_DIGITS[*s >> 4]);
+				print (HEX_DIGITS[*s & 15]);
+			}
+		}
+	}
+};
+
+const char *PStringWithEncoder::HEX_DIGITS = "0123456789abcdef";
+const byte PStringWithEncoder::BUFSIZE = 32;
+
+const unsigned int MAX_POSTDATA_LEN = 128;
+char postDataBuf[MAX_POSTDATA_LEN];
+PStringWithEncoder postData (postDataBuf, MAX_POSTDATA_LEN);
+
+//~ #define USE_SECONDS
+
+char *formatTime (time_t t) {
+	static char pbuf[32];
+	PString p (pbuf, 32);
+
+	TimeElements tm;
+	breakTime (t, tm);
+
+	p.print (tm.Day);
+	p.print ("/");
+	p.print (tm.Month);
+	p.print ("/");
+	p.print (tm.Year + 1970);
+	p.print (" ");
+	p.print (tm.Hour);
+	p.print (":");
+	if (tm.Minute < 10)
+		p.print ('0');
+	p.print (tm.Minute);
+#ifdef USE_SECONDS
+	p.print (":");
+	if (tm.Second < 10)
+		p.print ('0');
+	p.print (tm.Second);
+#endif
+
+	return pbuf;
+}
+
+boolean sendRebootNotification (time_t time_lost, time_t time_reboot, time_t time_ok) {
+	boolean ret = false;
+
+#ifdef PUSHINGBOX_DEVID_REBOOT
+	if (ether.dnsLookup (PUSHINGBOX_API_HOST)) {
+		Serial.println ("Unable to resolve address of PushingBox API");
+	} else {
+		postData.begin ();
+		postData.print (F("devid="));
+		postData.print (F(PUSHINGBOX_DEVID_REBOOT));
+		postData.print (F("&time_reboot="));
+		postData.printEncoded (formatTime (time_reboot));
+		postData.print (F("&time_lost="));
+		postData.printEncoded (formatTime (time_lost));
+		postData.print (F("&time_ok="));
+		postData.printEncoded (formatTime (time_ok));
+
+		//~ Serial.print ("POSTDATA: ");
+		//~ Serial.println (postData);
+
+		ether.httpPost (PSTR ("/pushingbox"), PUSHINGBOX_API_HOST, NULL, postData, pbApiCallback);
+		ret = true;
+	}
+#endif
+
+	return ret;
+}
+
+boolean sendDropoutNotification (time_t time_lost, time_t time_ok) {
+	boolean ret = false;
+
+#ifdef PUSHINGBOX_DEVID_DROPOUT
+	if (ether.dnsLookup (PUSHINGBOX_API_HOST)) {
+		Serial.println ("Unable to resolve address of PushingBox API");
+	} else {
+		postData.begin ();
+		postData.print (F("devid="));
+		postData.print (F(PUSHINGBOX_DEVID_DROPOUT));
+		postData.print (F("&time_lost="));
+		postData.printEncoded (formatTime (time_lost));
+		postData.print (F("&time_ok="));
+		postData.printEncoded (formatTime (time_ok));
+
+		//~ Serial.print ("POSTDATA: ");
+		//~ Serial.println (postData);
+
+		ether.httpPost (PSTR ("/pushingbox"), PUSHINGBOX_API_HOST, NULL, postData, pbApiCallback);
+		ret = true;
+	}
+#endif
+
+	return ret;
+}
+
+#endif		// ENABLE_PUSHINGBOX
