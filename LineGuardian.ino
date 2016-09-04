@@ -108,6 +108,9 @@ const unsigned int NTP_TIMEOUT = 3000;
 #include <PString.h>
 #endif
 
+#define NDEBUG
+#include "debug.h"
+
 
 // Time (micros()) of last ECHO request sent
 unsigned long pingStartTime = 0;		// 0 -> No ping in progress
@@ -153,8 +156,8 @@ inline void enterState (State s) {
 	state = s;
 	stateEnteredTime = millis ();
 
-	Serial.print (F("Entering state "));
-	Serial.println (s);
+	DPRINT (F("Entering state "));
+	DPRINTLN (s);
 }
 
 // Checks if the current state was entered longer than sec seconds
@@ -164,23 +167,23 @@ inline boolean inStateSince (unsigned long sec) {
 
 // Called when a ping comes in (replies to it are automatic)
 void gotPinged (byte* src) {
-	Serial.print (F("Pinged from: "));
-	Serial.println (IPAddress (src));
+	DPRINT (F("Pinged from: "));
+	DPRINTLN (IPAddress (src));
 }
 
 boolean start_ping () {
 	boolean ret = false;
 
 	if (pingStartTime != 0) {
-		Serial.println (F("Ping already in progress"));
+		DPRINTLN (F("Ping already in progress"));
 	} else {
-		Serial.println (F("Looking up host to ping..."));
+		DPRINTLN (F("Looking up host to ping..."));
 		if (!ether.dnsLookup (PSTR (PINGED_HOST))) {
-			Serial.println (F("DNS failed"));
+			DPRINTLN (F("DNS failed"));
 			pingStartTime = 0;
 		} else {
-			Serial.print (F("Resolved to: "));
-			Serial.println (IPAddress (ether.hisip));
+			DPRINT (F("Resolved to: "));
+			DPRINTLN (IPAddress (ether.hisip));
 
 			ether.clientIcmpRequest (ether.hisip);
 			pingStartTime = micros ();
@@ -194,9 +197,9 @@ boolean start_ping () {
 boolean check_for_ping_reply () {
 	if (ether.packetLoopIcmpCheckReply (ether.hisip)) {
 		unsigned long replyTime = micros ();
-		Serial.print (F("Got ping reply: "));
-		Serial.print ((replyTime - pingStartTime) / 1000.0, 1);
-		Serial.println (" ms");
+		DPRINT (F("Got ping reply: "));
+		DPRINT ((replyTime - pingStartTime) / 1000.0, 1);
+		DPRINTLN (F(" ms"));
 
 		pingStartTime = 0;
 
@@ -245,8 +248,8 @@ void led_green () {
 time_t prevDisplay = 0; // when the digital clock was displayed
 void setup () {
 	Serial.begin (9600);
-	Serial.print (F("LineGuardian "));
-	Serial.println (F(PROGRAM_VERSION));
+	DPRINT (F("LineGuardian "));
+	DPRINTLN (F(PROGRAM_VERSION));
 
 	// Setup leds
 	pinMode (LED_PIN_R, OUTPUT);
@@ -254,7 +257,7 @@ void setup () {
 	led_orange ();
 
 	if (!ether.begin (sizeof (Ethernet::buffer), mac)) {
-		Serial.println (F("Failed to access Ethernet controller"));
+		DPRINTLN (F("Failed to access Ethernet controller"));
 
 		// Halt here blinking fast
 		while (42) {
@@ -265,9 +268,9 @@ void setup () {
 		}
 	}
 
-	Serial.println (F("Trying to get configuration from DHCP"));
+	DPRINTLN (F("Trying to get configuration from DHCP"));
 	if (!ether.dhcpSetup ()) {
-		Serial.println (F("Failed to get configuration from DHCP"));
+		DPRINTLN (F("Failed to get configuration from DHCP"));
 
 		// Halt here blinking more slowly
 		while (42) {
@@ -278,17 +281,17 @@ void setup () {
 		}
 	}
 
-	Serial.println (F("DHCP configuration done:"));
-	Serial.print (F("- IP: "));
-	Serial.println (IPAddress (EtherCard::myip));
-	Serial.print (F("- Netmask: "));
-	Serial.println (IPAddress (EtherCard::netmask));
-	Serial.print (F("- Default Gateway: "));
-	Serial.println (IPAddress (EtherCard::gwip));
+	DPRINTLN (F("DHCP configuration done:"));
+	DPRINT (F("- IP: "));
+	DPRINTLN (IPAddress (EtherCard::myip));
+	DPRINT (F("- Netmask: "));
+	DPRINTLN (IPAddress (EtherCard::netmask));
+	DPRINT (F("- Default Gateway: "));
+	DPRINTLN (IPAddress (EtherCard::gwip));
 
 #ifdef ENABLE_PUSHINGBOX
 	// Sync with NTP
-	Serial.println (F("Syncing time with NTP..."));
+	DPRINTLN (F("Syncing time with NTP..."));
 	//setSyncProvider(getNtpTime);            // Use this for GMT time
 	setSyncProvider(getDstCorrectedTime);     // Use this for local, DST-corrected time
 #endif
@@ -312,24 +315,24 @@ void setup () {
 
 void digitalClockDisplay () {
 	// digital clock display of the time
-	Serial.print (hour ());
+	DPRINT (hour ());
 	printDigits (minute ());
 	printDigits (second ());
-	Serial.print (" ");
-	Serial.print (day ());
-	Serial.print (" ");
-	Serial.print (month ());
-	Serial.print (" ");
-	Serial.print (year ());
-	Serial.println ();
+	DPRINT (" ");
+	DPRINT (day ());
+	DPRINT (" ");
+	DPRINT (month ());
+	DPRINT (" ");
+	DPRINT (year ());
+	DPRINTLN ();
 }
 
 void printDigits (int digits) {
 	// utility for digital clock display: prints preceding colon and leading 0
-	Serial.print (":");
+	DPRINT (":");
 	if(digits < 10)
-		Serial.print ('0');
-	Serial.print (digits);
+		DPRINT ('0');
+	DPRINT (digits);
 }
 
 void loop () {
@@ -430,9 +433,9 @@ void loop () {
 // SyncProvider that returns UTC time
 time_t getNtpTime () {
 	// Send request
-	Serial.println ("Transmit NTP Request");
+	DPRINTLN (F("Transmit NTP Request"));
 	if (!ether.dnsLookup (timeServer)) {
-		Serial.println ("DNS failed");
+		DPRINTLN (F("DNS failed"));
 		return 0; // return 0 if unable to get the time
 	} else {
 		//ether.printIp("SRV: ", ether.hisip);
@@ -446,12 +449,12 @@ time_t getNtpTime () {
 
 			unsigned long secsSince1900 = 0L;
 			if (len > 0 && ether.ntpProcessAnswer (&secsSince1900, NTP_PORT)) {
-				Serial.println ("Receive NTP Response");
+				DPRINTLN (F("Receive NTP Response"));
 				return secsSince1900 - 2208988800UL;
 			}
 		}
 
-		Serial.println ("No NTP Response :-(");
+		DPRINTLN (F("No NTP Response :-("));
 		return 0;
 	}
 }
@@ -502,10 +505,10 @@ const char PUSHINGBOX_API_HOST[] PROGMEM = "api.pushingbox.com";
 // called when the client request is complete
 // FIXME: Parse reply to see if request was successful
 static void pbApiCallback (byte status, word off, word len) {
-	Serial.println(">>>");
+	DPRINTLN (F(">>>"));
 	Ethernet::buffer[off + 500] = 0;
-	Serial.print ((const char*) Ethernet::buffer + off);
-	Serial.println ("...");
+	DPRINT ((const char*) Ethernet::buffer + off);
+	DPRINTLN (F("..."));
 }
 
 class PStringWithEncoder: public PString {
@@ -551,18 +554,18 @@ char *formatTime (time_t t) {
 	breakTime (t, tm);
 
 	p.print (tm.Day);
-	p.print ("/");
+	p.print ('/');
 	p.print (tm.Month);
-	p.print ("/");
+	p.print ('/');
 	p.print (tm.Year + 1970);
-	p.print (" ");
+	p.print (' ');
 	p.print (tm.Hour);
-	p.print (":");
+	p.print (':');
 	if (tm.Minute < 10)
 		p.print ('0');
 	p.print (tm.Minute);
 #ifdef USE_SECONDS
-	p.print (":");
+	p.print (':');
 	if (tm.Second < 10)
 		p.print ('0');
 	p.print (tm.Second);
@@ -576,7 +579,7 @@ boolean sendRebootNotification (time_t time_lost, time_t time_reboot, time_t tim
 
 #ifdef PUSHINGBOX_DEVID_REBOOT
 	if (ether.dnsLookup (PUSHINGBOX_API_HOST)) {
-		Serial.println ("Unable to resolve address of PushingBox API");
+		DPRINTLN (F("Unable to resolve address of PushingBox API"));
 	} else {
 		postData.begin ();
 		postData.print (F("devid="));
@@ -588,8 +591,8 @@ boolean sendRebootNotification (time_t time_lost, time_t time_reboot, time_t tim
 		postData.print (F("&time_ok="));
 		postData.printEncoded (formatTime (time_ok));
 
-		//~ Serial.print ("POSTDATA: ");
-		//~ Serial.println (postData);
+		//~ DPRINT ("POSTDATA: ");
+		//~ DPRINTLN (postData);
 
 		ether.httpPost (PSTR ("/pushingbox"), PUSHINGBOX_API_HOST, NULL, postData, pbApiCallback);
 		ret = true;
@@ -604,7 +607,7 @@ boolean sendDropoutNotification (time_t time_lost, time_t time_ok) {
 
 #ifdef PUSHINGBOX_DEVID_DROPOUT
 	if (ether.dnsLookup (PUSHINGBOX_API_HOST)) {
-		Serial.println ("Unable to resolve address of PushingBox API");
+		DPRINTLN (F("Unable to resolve address of PushingBox API"));
 	} else {
 		postData.begin ();
 		postData.print (F("devid="));
@@ -614,8 +617,8 @@ boolean sendDropoutNotification (time_t time_lost, time_t time_ok) {
 		postData.print (F("&time_ok="));
 		postData.printEncoded (formatTime (time_ok));
 
-		//~ Serial.print ("POSTDATA: ");
-		//~ Serial.println (postData);
+		//~ DPRINT ("POSTDATA: ");
+		//~ DPRINTLN (postData);
 
 		ether.httpPost (PSTR ("/pushingbox"), PUSHINGBOX_API_HOST, NULL, postData, pbApiCallback);
 		ret = true;
