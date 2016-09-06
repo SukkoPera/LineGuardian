@@ -165,7 +165,7 @@ inline boolean inStateSince (unsigned long sec) {
 	return millis () - stateEnteredTime >= sec * 1000UL;
 }
 
-// Called when a ping comes in (replies to it are automatic)
+// Called when a ping comes in (replies are automatic)
 void gotPinged (byte* src) {
 	DPRINT (F("Pinged from: "));
 	DPRINTLN (IPAddress (src));
