@@ -98,14 +98,18 @@ const unsigned int NTP_TIMEOUT = 3000;
 
 #if defined (PUSHINGBOX_DEVID_REBOOT) || defined (PUSHINGBOX_DEVID_DROPOUT)
 	#define ENABLE_PUSHINGBOX
+	#define ENABLE_TIME
 #endif
 
 #include <EtherCard.h>
 #include <IPAddress.h>
-#include <TimeLib.h>
 
-#ifdef ENABLE_PUSHINGBOX
+#if defined (ENABLE_PUSHINGBOX) || defined (ENABLE_TIME)
 #include <PString.h>
+#endif
+
+#ifdef ENABLE_TIME
+#include <TimeLib.h>
 #endif
 
 #define NDEBUG
@@ -127,6 +131,8 @@ byte Ethernet::buffer[ETHERNET_BUFSIZE];
 // True if network is connected
 boolean lineUp = false;
 
+#ifdef ENABLE_TIME
+
 // Time at which line last went up
 time_t timeLineWentUp = 0;
 
@@ -135,6 +141,12 @@ time_t timeLineWentDown = 0;
 
 // Time at which we last rebooted the router
 time_t timeRebooted = 0;
+
+// Time at which the digital clock was last displayed on serial
+time_t prevDisplay = 0;
+
+#endif	// ENABLE_TIME
+
 
 // Program version
 #define PROGRAM_VERSION "20160904"
@@ -245,7 +257,37 @@ void led_green () {
 	digitalWrite (LED_PIN_G, HIGH);
 }
 
-time_t prevDisplay = 0; // when the digital clock was displayed
+#ifdef ENABLE_TIME
+char *formatTime (time_t t, boolean withSeconds = false) {
+	static char pbuf[32];
+	PString p (pbuf, sizeof (pbuf));
+
+	TimeElements tm;
+	breakTime (t, tm);
+
+	p.print (tm.Day);
+	p.print ('/');
+	p.print (tm.Month);
+	p.print ('/');
+	p.print (tm.Year + 1970);
+	p.print (' ');
+	p.print (tm.Hour);
+	p.print (':');
+	if (tm.Minute < 10)
+		p.print ('0');
+	p.print (tm.Minute);
+
+	if (withSeconds) {
+		p.print (':');
+		if (tm.Second < 10)
+			p.print ('0');
+		p.print (tm.Second);
+	}
+
+	return pbuf;
+}
+#endif
+
 void setup () {
 	DSTART (9600);
 	DPRINT (F("LineGuardian "));
@@ -289,7 +331,7 @@ void setup () {
 	DPRINT (F("- Default Gateway: "));
 	DPRINTLN (IPAddress (EtherCard::gwip));
 
-#ifdef ENABLE_PUSHINGBOX
+#ifdef ENABLE_TIME
 	// Sync with NTP
 	DPRINTLN (F("Syncing time with NTP..."));
 	//setSyncProvider (getNtpTime);            // Use this for GMT time
@@ -313,36 +355,17 @@ void setup () {
 	enterState (ST_INIT);
 }
 
-void digitalClockDisplay () {
-	// digital clock display of the time
-	DPRINT (hour ());
-	printDigits (minute ());
-	printDigits (second ());
-	DPRINT (" ");
-	DPRINT (day ());
-	DPRINT (" ");
-	DPRINT (month ());
-	DPRINT (" ");
-	DPRINT (year ());
-	DPRINTLN ();
-}
-
-void printDigits (int digits) {
-	// utility for digital clock display: prints preceding colon and leading 0
-	DPRINT (":");
-	if(digits < 10)
-		DPRINT ('0');
-	DPRINT (digits);
-}
 
 void loop () {
+#if defined (ENABLE_TIME) && !defined (NDEBUG)
 	if (timeStatus () != timeNotSet) {
-		if (now() != prevDisplay) { //update the display only if time has changed
-			prevDisplay = now();
-			digitalClockDisplay();
+		if (now () != prevDisplay) { //update the display only if time has changed
+			prevDisplay = now ();
+			char *formattedTime = formatTime (now (), true);
+			DPRINTLN (formattedTime);
 		}
 	}
-
+#endif
 
 	// Ethernet loop
 	word len = ether.packetReceive (); // go receive new packets
@@ -381,7 +404,10 @@ void loop () {
 		case ST_OK:
 			led_green ();
 			lineUp = true;
+
+#ifdef ENABLE_TIME
 			timeLineWentUp = now ();
+#endif
 
 #ifdef ENABLE_PUSHINGBOX
 			if (timeLineWentDown != 0) {
@@ -400,7 +426,11 @@ void loop () {
 		case ST_FAIL:
 			led_red ();
 			lineUp = false;
+
+#ifdef ENABLE_TIME
 			timeLineWentDown = now ();
+#endif
+
 			if (++pingFailures >= MAX_FAILURES) {
 				enterState (ST_POWER_CYCLE);
 			} else {
@@ -414,7 +444,11 @@ void loop () {
 			break;
 		case ST_POWER_CYCLE:
 			led_orange ();
+
+#ifdef ENABLE_TIME
 			timeRebooted = now ();
+#endif
+
 			disableRelay ();
 			if (inStateSince (POWER_OFF_TIME)) {
 				enterState (ST_INIT);
@@ -425,10 +459,10 @@ void loop () {
 
 
 /*******************************************************************************
- * PUSHINGBOX STUFF
+ * TIME STUFF
  ******************************************************************************/
 
-#ifdef ENABLE_PUSHINGBOX
+#ifdef ENABLE_TIME
 
 // SyncProvider that returns UTC time
 time_t getNtpTime () {
@@ -498,6 +532,14 @@ byte dstOffset (byte d, byte m, unsigned int y, byte h) {
 		return 0;
 }
 
+#endif		// ENABLE_TIME
+
+
+/*******************************************************************************
+ * PUSHINGBOX STUFF
+ ******************************************************************************/
+
+#ifdef ENABLE_PUSHINGBOX
 
 // PushingBox API access point
 const char PUSHINGBOX_API_HOST[] PROGMEM = "api.pushingbox.com";
@@ -543,36 +585,6 @@ const byte PStringWithEncoder::BUFSIZE = 32;
 const unsigned int MAX_POSTDATA_LEN = 128;
 char postDataBuf[MAX_POSTDATA_LEN];
 PStringWithEncoder postData (postDataBuf, MAX_POSTDATA_LEN);
-
-//~ #define USE_SECONDS
-
-char *formatTime (time_t t) {
-	static char pbuf[32];
-	PString p (pbuf, 32);
-
-	TimeElements tm;
-	breakTime (t, tm);
-
-	p.print (tm.Day);
-	p.print ('/');
-	p.print (tm.Month);
-	p.print ('/');
-	p.print (tm.Year + 1970);
-	p.print (' ');
-	p.print (tm.Hour);
-	p.print (':');
-	if (tm.Minute < 10)
-		p.print ('0');
-	p.print (tm.Minute);
-#ifdef USE_SECONDS
-	p.print (':');
-	if (tm.Second < 10)
-		p.print ('0');
-	p.print (tm.Second);
-#endif
-
-	return pbuf;
-}
 
 boolean sendRebootNotification (time_t time_lost, time_t time_reboot, time_t time_ok) {
 	boolean ret = false;
