@@ -22,7 +22,7 @@
 #define _DEBUG_H_
 
 #ifndef NDEBUG
-	#define DSTART(...) do {Serial.begin (9600); while (!Serial);} while (0)
+	#define DSTART(bps) do {Serial.begin (bps); while (!Serial);} while (0)
 	#define DPRINT(...) Serial.print(__VA_ARGS__)
 	#define DPRINTLN(...) Serial.println(__VA_ARGS__)
 #else

@@ -247,7 +247,7 @@ void led_green () {
 
 time_t prevDisplay = 0; // when the digital clock was displayed
 void setup () {
-	Serial.begin (9600);
+	DSTART (9600);
 	DPRINT (F("LineGuardian "));
 	DPRINTLN (F(PROGRAM_VERSION));
 
