@@ -292,8 +292,8 @@ void setup () {
 #ifdef ENABLE_PUSHINGBOX
 	// Sync with NTP
 	DPRINTLN (F("Syncing time with NTP..."));
-	//setSyncProvider(getNtpTime);            // Use this for GMT time
-	setSyncProvider(getDstCorrectedTime);     // Use this for local, DST-corrected time
+	//setSyncProvider (getNtpTime);            // Use this for GMT time
+	setSyncProvider (getDstCorrectedTime);     // Use this for local, DST-corrected time
 #endif
 
 	// Call this when others ping us
@@ -443,7 +443,7 @@ time_t getNtpTime () {
 
 		// Wait for reply
 		unsigned long beginWait = millis ();
-		while (millis() - beginWait < NTP_TIMEOUT) {
+		while (millis () - beginWait < NTP_TIMEOUT) {
 			word len = ether.packetReceive ();
 			ether.packetLoop (len);
 
