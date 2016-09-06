@@ -91,6 +91,9 @@ const unsigned int NTP_PORT = 123;
 // Time to wait for a reply from the NTP server (ms)
 const unsigned int NTP_TIMEOUT = 3000;
 
+// DEFINE this to DISABLE debug messages
+#define NDEBUG
+
 /*******************************************************************************
  * END OF SETTINGS
  ******************************************************************************/
@@ -112,7 +115,6 @@ const unsigned int NTP_TIMEOUT = 3000;
 #include <TimeLib.h>
 #endif
 
-#define NDEBUG
 #include "debug.h"
 
 
